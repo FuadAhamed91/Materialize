@@ -29,9 +29,9 @@ public class MaterializeApiKeyWindow : EditorWindow
             "this machine's EditorPrefs only, never in the scene or the repository. Builds read ANTHROPIC_API_KEY, " +
             "GROQ_API_KEY or OPENAI_API_KEY from the environment instead.",
             MessageType.Info);
-        anthropicKey = EditorGUILayout.PasswordField("Anthropic API key", anthropicKey);
-        groqKey = EditorGUILayout.PasswordField("Groq API key", groqKey);
-        openAIKey = EditorGUILayout.PasswordField("OpenAI API key", openAIKey);
+        anthropicKey = KeyField("Anthropic API key", anthropicKey);
+        groqKey = KeyField("Groq API key", groqKey);
+        openAIKey = KeyField("OpenAI API key", openAIKey);
         GUILayout.FlexibleSpace();
         using (new EditorGUILayout.HorizontalScope())
         {
@@ -50,6 +50,24 @@ public class MaterializeApiKeyWindow : EditorWindow
                 Close();
             }
         }
+    }
+
+    /// <summary>Masked key field with a Copy button, e.g. for pasting the same key into Vercel.</summary>
+    static string KeyField(string label, string value)
+    {
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            value = EditorGUILayout.PasswordField(label, value);
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(value)))
+            {
+                if (GUILayout.Button("Copy", GUILayout.Width(52)))
+                {
+                    EditorGUIUtility.systemCopyBuffer = value.Trim();
+                    Debug.Log($"[Materialize] {label} copied to the clipboard.");
+                }
+            }
+        }
+        return value;
     }
 
     static void Store(string pref, string value)
