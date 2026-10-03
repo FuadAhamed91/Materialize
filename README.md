@@ -2,6 +2,8 @@
 
 Cambridge × Arcade AI Hackathon, Game Tech Track. Unity 6.3 LTS (6000.3.2f1) + URP 17.3.
 
+**Play in your browser: https://materialize-eight.vercel.app** (desktop Chrome, Edge or Firefox; click the game to capture the mouse)
+
 Type a description of an object at runtime. A physics compiler (an LLM, with an offline keyword fallback) turns it into a strict JSON physics profile (shape, size, mass, restitution, friction, PBR colour). The Matter Gun then materializes that object, with a real Rigidbody and PhysicsMaterial, to solve ten test chambers. Each chamber is built around a different physical property.
 
 **No hints in-game.** Signs and the HUD show only each chamber's name. The bucket gauge shows its current load but not the target, and the force field, scale and gates give feedback without explaining themselves. Players work out every puzzle from the room itself. The solutions below are for the team only.
@@ -61,6 +63,17 @@ The level is generated, not hand-placed:
 1. **Blender:** run `ArtSource/build_chambers.py` (Text Editor > Run Script, or through the Blender MCP). It rebuilds the ten chamber scenes in `ArtSource/Materialize_Chambers.blend` and exports `Assets/Art/Chambers/*.fbx`.
 2. **Unity:** run **Materialize > Build Scene**. It recreates `Assets/Scenes/Materialize.unity`: URP materials and FBX remaps, MeshColliders with physics materials, the puzzle rigs, the player, the HUD, lighting and post-processing.
 3. **Unity:** run **Materialize > Validate Scene**. It checks layers, colliders and PhysicsMaterials, and every puzzle hook-up.
+
+## Web build (Vercel)
+
+The live site is the Unity WebGL build in `web/`, deployed on Vercel.
+
+- **LLM on the web:** a web build can't keep an API key secret, so in the browser the game posts prompts to the serverless function `web/api/materialize.js`. That function calls Groq using the `GROQ_API_KEY` environment variable on the Vercel project. To turn it on, open Vercel, go to the project's **Settings > Environment Variables**, add `GROQ_API_KEY` for Production, then redeploy. Until then the web game uses the offline compiler, which is fully playable.
+- **Rebuild and redeploy:**
+  1. In Unity, build for **Web** to `Builds/WebGL`. Everything is already configured: the `PROJECT:Materialize` template (full window), Gzip with decompression fallback, and PC quality.
+  2. Copy `index.html`, `Build/` and `TemplateData/` from `Builds/WebGL` into `web/`, keeping `web/api` and `web/vercel.json`.
+  3. Run `vercel deploy web --prod`.
+- `Assets/link.xml` stops the web build from stripping the physics and audio classes that the Matter Gun and ImpactAudio create at runtime.
 
 ## Code map (`Assets/Scripts`)
 

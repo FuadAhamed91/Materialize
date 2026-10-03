@@ -1,0 +1,9 @@
+<linker>
+  <!--
+    Web builds strip engine classes that no scene object uses. The Matter Gun creates spheres and
+    cylinders at runtime (SphereCollider, CapsuleCollider) and ImpactAudio creates AudioSources and
+    AudioClips at runtime, so keep both modules whole.
+  -->
+  <assembly fullname="UnityEngine.PhysicsModule" preserve="all"/>
+  <assembly fullname="UnityEngine.AudioModule" preserve="all"/>
+</linker>

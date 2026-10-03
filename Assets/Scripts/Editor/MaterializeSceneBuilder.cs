@@ -713,7 +713,8 @@ public static class MaterializeSceneBuilder
         foreach (float y in new[] { c.length * 0.25f, c.length * 0.75f })
         {
             index++;
-            NewLight($"Ceiling Light {index}", group, c.B(x, y, c.height - 0.5f), new Color(1f, 0.93f, 0.84f), intensity, c.height + 9f, index <= 2);
+            // one shadow caster per room: point-light shadows cost six maps each, which WebGL feels
+            NewLight($"Ceiling Light {index}", group, c.B(x, y, c.height - 0.5f), new Color(1f, 0.93f, 0.84f), intensity, c.height + 9f, index == 1);
         }
 
         var probe = new GameObject("Reflection Probe").AddComponent<ReflectionProbe>();
@@ -763,7 +764,7 @@ public static class MaterializeSceneBuilder
         cameraObject.transform.SetParent(pivot, false);
         var camera = cameraObject.GetComponent<Camera>();
         camera.nearClipPlane = 0.05f;
-        camera.farClipPlane = 250f;
+        camera.farClipPlane = 60f; // chambers are 40 m apart and walled in; no need to draw the others
         camera.fieldOfView = 72f;
         camera.clearFlags = CameraClearFlags.SolidColor;
         camera.backgroundColor = new Color(0.04f, 0.05f, 0.06f);
