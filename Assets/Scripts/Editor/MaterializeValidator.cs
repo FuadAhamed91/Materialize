@@ -5,7 +5,7 @@ using UnityEngine;
 
 /// <summary>
 /// Smoke checks for the assembled scene: layers, colliders and PhysicsMaterials, the player rig,
-/// the Matter Gun wiring and every puzzle hook-up. Menu: Materialize > Validate Scene.
+/// the Matter Gun and inventory wiring and every puzzle hook-up. Menu: Materialize > Validate Scene.
 /// </summary>
 public static class MaterializeValidator
 {
@@ -60,16 +60,13 @@ public static class MaterializeValidator
 
         var gun = Object.FindFirstObjectByType<MatterGun>();
         if (gun == null) Fail("no MatterGun in the scene");
-        else if (gun.promptService == null || gun.hud == null || gun.player == null || gun.baseMaterial == null) Fail("MatterGun has unassigned references");
+        else if (gun.inventory == null || gun.hud == null || gun.player == null || gun.baseMaterial == null || gun.ghostMaterial == null)
+            Fail("MatterGun has unassigned references");
         else
         {
             bool ignoresPlayer = (gun.aimMask.value & (1 << LayerMask.NameToLayer(MaterializeSceneBuilder.PlayerLayer))) == 0;
             if (!ignoresPlayer) Fail("MatterGun aim mask still hits the Player layer");
-            else
-            {
-                MatterCompilerProvider active = gun.promptService.ResolveProvider(out _);
-                Pass($"MatterGun on '{gun.name}' wired to the prompt service (provider {gun.promptService.provider}, answering now: {active}), HUD and URP base material '{gun.baseMaterial.name}'");
-            }
+            else Pass($"MatterGun on '{gun.name}' wired to the inventory, HUD, URP base material '{gun.baseMaterial.name}' and placement preview '{gun.ghostMaterial.name}'");
         }
 
         foreach (var plate in Object.FindObjectsByType<WeightTriggerPlate>(FindObjectsSortMode.None))
@@ -101,11 +98,20 @@ public static class MaterializeValidator
         else Pass($"{zones.Length} ledge-top ZoneTrigger(s) -> {string.Join(", ", zones.SelectMany(z => z.targets).Select(t => t.name))}");
 
         var exits = Object.FindObjectsByType<ChamberExit>(FindObjectsSortMode.None);
-        int linked = exits.Count(e => e.nextSpawn != null);
+        int linked = exits.Count(e => e.nextSpawn != null && e.nextLoadout != null && e.inventory != null);
         int expected = MaterializeSceneBuilder.ChamberCount;
         if (exits.Length != expected || linked != expected - 1)
-            Fail($"expected {expected} chamber exits ({expected - 1} linked onward), found {exits.Length} ({linked} linked)");
-        else Pass($"{expected} chamber exits chained 01 -> {expected:00} -> complete");
+            Fail($"expected {expected} chamber exits ({expected - 1} linked onward with the next inventory), found {exits.Length} ({linked} linked)");
+        else Pass($"{expected} chamber exits chained 01 -> {expected:00} -> complete, each loading the next chamber's inventory");
+
+        var loadouts = Object.FindObjectsByType<ChamberLoadout>(FindObjectsSortMode.None).OrderBy(l => l.name).ToList();
+        var inventory = Object.FindFirstObjectByType<Inventory>();
+        var broken = loadouts.Where(l => l.items == null || l.items.Length == 0 || l.items.Length > 9 ||
+            l.items.Any(item => item == null || item.config == null || item.count < 1 || string.IsNullOrEmpty(item.name))).Select(l => l.name).ToList();
+        if (loadouts.Count != expected) Fail($"expected {expected} chamber inventories, found {loadouts.Count}");
+        else if (broken.Count > 0) Fail($"inventories that are empty, over 9 slots or hold a broken item: {string.Join(", ", broken)}");
+        else if (inventory == null || inventory.loadout == null) Fail("no Inventory with a starting loadout");
+        else Pass($"{loadouts.Count} chamber inventories ({string.Join(" / ", loadouts.Select(l => l.items.Length))} slots, {loadouts.Sum(l => l.items.Sum(i => i.count))} items); the run starts with {inventory.loadout.name}");
 
         int water = Object.FindObjectsByType<BuoyancyVolume>(FindObjectsSortMode.None).Length;
         var seals = Object.FindObjectsByType<ImpactSeal>(FindObjectsSortMode.None);
@@ -125,12 +131,10 @@ public static class MaterializeValidator
         else Pass($"{hazards.Length} hazard volumes ({string.Join(", ", hazards.Select(h => h.name))})");
 
         var hud = Object.FindFirstObjectByType<MatterHUD>();
-        if (hud == null || hud.promptField == null || hud.telemetryText == null) Fail("HUD is missing its prompt field or telemetry");
-        else
-        {
-            var placeholder = hud.promptField.placeholder as UnityEngine.UI.Text;
-            Pass($"HUD: crosshair, telemetry, prompt bar (hidden, placeholder \"{placeholder?.text}\")");
-        }
+        if (hud == null || hud.inventory == null || hud.telemetryText == null || hud.slots == null || hud.slots.Length < 9 ||
+            hud.slots.Any(slot => slot == null || slot.root == null || slot.frame == null || slot.icon == null || slot.count == null))
+            Fail("HUD is missing its hotbar, inventory or telemetry");
+        else Pass($"HUD: crosshair, telemetry, {hud.slots.Length}-slot hotbar bound to the inventory");
 
         string summary = $"Materialize validation: {(failures == 0 ? "ALL CHECKS PASSED" : failures + " FAILURE(S)")}\n{report}";
         if (failures == 0) Debug.Log(summary);

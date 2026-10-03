@@ -1,10 +1,11 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using UnityEngine;
 
 /// <summary>
-/// Runtime state of one synthesized object: its compiled config, conductivity, impact feedback
+/// Runtime state of one placed object: its physics config, conductivity, impact feedback
 /// (sound and camera shake scaled by relativeVelocity x mass) and the materialize / dissolve effects.
 /// </summary>
 public class SpawnedMatter : MonoBehaviour
@@ -24,6 +25,15 @@ public class SpawnedMatter : MonoBehaviour
     public bool IsDissolving { get; private set; }
     public bool Electrified { get; private set; }
     public IReadOnlyList<Collider> Colliders => colliders;
+
+    /// <summary>The chamber inventory and hotbar slot it came from, so it can be refunded.</summary>
+    public ChamberLoadout Loadout { get; set; }
+    public int Slot { get; set; } = -1;
+
+    /// <summary>Raised when matter finishes dissolving (recycled, reset, or lost to a hazard).</summary>
+    public static event Action<SpawnedMatter> Removed;
+
+    const float LostBelowY = -30f;
 
     /// <summary>Metals, or anything described as conductive, carry current between terminals.</summary>
     public bool IsConductive =>
@@ -96,6 +106,12 @@ public class SpawnedMatter : MonoBehaviour
         Body.WakeUp();
     }
 
+    void FixedUpdate()
+    {
+        // fell out of the world: return it to the inventory
+        if (!IsDissolving && transform.position.y < LostBelowY) Dissolve(0.05f);
+    }
+
     void OnCollisionEnter(Collision collision)
     {
         if (IsDissolving || Body == null || Body.isKinematic) return;
@@ -146,6 +162,7 @@ public class SpawnedMatter : MonoBehaviour
             if (material) material.SetColor("_EmissionColor", DissolveGlow * k);
             yield return null;
         }
+        Removed?.Invoke(this);
         Destroy(gameObject);
     }
 

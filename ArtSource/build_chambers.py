@@ -547,6 +547,10 @@ def build_chamber_07(b):
         if weighted:  # the sealed counterweight
             _add_box(bm, Vector((-0.32, -0.32, base + 0.08)), Vector((0.32, 0.32, base + 0.72)))
         b.obj(name, bm, "M_DarkMetal", origin=(x, cy, pz))
+    # viewing step in front of the sensor pan: from the floor you can't see into it once it rises
+    for name, y0, y1, top in (("Viewing_Stair1", cy - 4.4, cy - 3.8, 0.3), ("Viewing_Stair2", cy - 3.8, cy - 3.2, 0.6),
+                              ("Viewing_Stair3", cy - 3.2, cy - 2.6, 0.9), ("Viewing_Step", cy - 2.6, cy - 1.4, 1.2)):
+        b.box(name, (-arm - 1.4, y0, 0), (-arm + 1.4, y1, top), "M_ConcreteDark")
     shell(b, W, L, H, beam_ys=(2.0, 12.0), pilaster_ys=(2.0, 12.0))
 
 

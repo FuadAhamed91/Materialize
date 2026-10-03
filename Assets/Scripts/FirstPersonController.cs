@@ -32,21 +32,9 @@ public class FirstPersonController : MonoBehaviour
     CharacterController controller;
     Vector3 velocity;
     float yaw, pitch;
-    bool inputLocked, bouncedThisMove, shocked;
-    int lockChangedFrame = -1;
+    bool bouncedThisMove, shocked;
     Vector3 checkpoint;
     float checkpointYaw;
-
-    /// <summary>Freezes movement and look (while typing a prompt).</summary>
-    public bool InputLocked
-    {
-        get => inputLocked;
-        set
-        {
-            inputLocked = value;
-            lockChangedFrame = Time.frameCount;
-        }
-    }
 
     public Bounds Bounds => controller ? controller.bounds : new Bounds(transform.position, Vector3.one);
     public Vector3 Velocity => velocity;
@@ -80,7 +68,6 @@ public class FirstPersonController : MonoBehaviour
 
     void HandleCursor()
     {
-        if (inputLocked || Time.frameCount == lockChangedFrame) return;
         if (GameInput.CancelPressed) LockCursor(false);
         else if (GameInput.ClickPressed && Cursor.lockState != CursorLockMode.Locked) LockCursor(true);
     }
@@ -93,7 +80,7 @@ public class FirstPersonController : MonoBehaviour
 
     void Look()
     {
-        if (inputLocked || Cursor.lockState != CursorLockMode.Locked) return;
+        if (Cursor.lockState != CursorLockMode.Locked) return;
         Vector2 delta = GameInput.LookDelta * lookSensitivity;
         yaw += delta.x;
         pitch = Mathf.Clamp(pitch - delta.y, -maxPitch, maxPitch);
@@ -104,8 +91,8 @@ public class FirstPersonController : MonoBehaviour
     void Move()
     {
         bool grounded = controller.isGrounded;
-        Vector2 input = inputLocked ? Vector2.zero : Vector2.ClampMagnitude(GameInput.Move, 1f);
-        float speed = !inputLocked && GameInput.SprintHeld ? sprintSpeed : walkSpeed;
+        Vector2 input = Vector2.ClampMagnitude(GameInput.Move, 1f);
+        float speed = GameInput.SprintHeld ? sprintSpeed : walkSpeed;
         Vector3 wish = (transform.right * input.x + transform.forward * input.y) * speed;
         float accel = acceleration * (grounded ? 1f : airControl);
         Vector3 horizontal = Vector3.MoveTowards(new Vector3(velocity.x, 0f, velocity.z), wish, accel * Time.deltaTime);
@@ -113,7 +100,7 @@ public class FirstPersonController : MonoBehaviour
         velocity.z = horizontal.z;
 
         if (grounded && velocity.y < 0f) velocity.y = -2f;
-        if (grounded && !inputLocked && GameInput.JumpPressed) velocity.y = Mathf.Sqrt(2f * jumpHeight * -gravity);
+        if (grounded && GameInput.JumpPressed) velocity.y = Mathf.Sqrt(2f * jumpHeight * -gravity);
         velocity.y += gravity * Time.deltaTime;
 
         bouncedThisMove = false;

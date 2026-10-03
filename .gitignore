@@ -56,3 +56,7 @@ crashlytics-build.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# written by the Performance Testing package during player builds
+/Assets/Resources/PerformanceTestRun*
+/Assets/Resources.meta

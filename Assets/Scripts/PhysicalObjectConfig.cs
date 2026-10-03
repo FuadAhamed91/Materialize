@@ -2,8 +2,9 @@ using System;
 using UnityEngine;
 
 /// <summary>
-/// Physics profile for one piece of synthesized matter. This is the exact JSON shape the LLM is
-/// asked to return, so keep field names in sync with PhysicsPromptService.SystemPrompt.
+/// Physics profile for one inventory item: shape, size, mass, restitution, friction and PBR look.
+/// The scene builder authors one per item; the Matter Gun builds the Rigidbody, PhysicsMaterial and
+/// material from it.
 /// </summary>
 [Serializable]
 public class PhysicalObjectConfig
@@ -17,7 +18,7 @@ public class PhysicalObjectConfig
     public string hexColor = "#8C8C8C";                 // PBR base tint
     public float roughness = 0.5f;                      // 0..1
     public float metalness;                             // 0..1
-    public string prompt = "";                          // original text
+    public string prompt = "";                          // item name
 
     public const float MinDimension = 0.05f, MaxDimension = 12f;
     public const float MinMass = 0.05f, MaxMass = 50000f;
@@ -33,8 +34,11 @@ public class PhysicalObjectConfig
 
     public Color Color => ColorUtility.TryParseHtmlString(hexColor, out Color c) ? c : new Color(0.55f, 0.55f, 0.55f);
 
-    /// <summary>Cylinders lie along z when z is their longest side; otherwise they stand on y.</summary>
-    public static bool CylinderLiesAlongZ(Vector3 size) => size.z > size.y && size.z >= size.x;
+    /// <summary>
+    /// Cylinders lie along z (logs, rods) when z is strictly their longest side; otherwise they stand
+    /// on y with diameter max(x, z), so (d, h, d) is an upright disc or post.
+    /// </summary>
+    public static bool CylinderLiesAlongZ(Vector3 size) => size.z > size.y && size.z > size.x;
 
     public static float ShapeVolume(string shape, Vector3 s)
     {

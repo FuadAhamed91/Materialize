@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Copper terminal circuit. Closed when conductive synthesized matter (alone, or a chain of touching
+/// Copper terminal circuit. Closed when conductive placed matter (alone, or a chain of touching
 /// conductors) connects node A to node B; then it opens the target doors.
 /// </summary>
 public class ElectricalBridge : MonoBehaviour

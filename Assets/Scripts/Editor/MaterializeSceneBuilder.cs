@@ -6,20 +6,16 @@ using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
-#if ENABLE_INPUT_SYSTEM
-using UnityEngine.InputSystem.UI;
-#endif
 using Object = UnityEngine.Object;
 
 /// <summary>
 /// Assembles Assets/Scenes/Materialize.unity from the Blender chamber exports in Assets/Art/Chambers:
-/// URP materials and import remaps, colliders and physics materials, the ten puzzle rigs, the
-/// first-person player with the Matter Gun, the HUD, lighting and post-processing.
-/// In-game text names each chamber but never explains its puzzle.
+/// URP materials and import remaps, colliders and physics materials, the ten puzzle rigs, each
+/// chamber's inventory, the first-person player with the Matter Gun, the hotbar HUD, lighting and
+/// post-processing. In-game text names each chamber but never explains its puzzle.
 /// Menu: Materialize > Build Scene. Re-running rebuilds the scene from scratch.
 /// </summary>
 public static class MaterializeSceneBuilder
@@ -144,26 +140,31 @@ public static class MaterializeSceneBuilder
         RigGrip(chambers[7], physics);
         RigMarbleRun(chambers[8], physics);
         RigSynthesis(chambers[9], physics);
+        ChamberLoadout[] loadouts = BuildLoadouts(chambers);
+        var inventory = new GameObject("Systems").AddComponent<Inventory>();
+        inventory.loadout = loadouts[0];
         for (int i = 0; i < chambers.Length; i++)
         {
             Chamber c = chambers[i];
             c.exit = ExitTrigger(c, c.B(0f, c.length + 2.6f, c.doorZ + 1.5f));
+            c.exit.inventory = inventory;
             if (i + 1 >= chambers.Length) continue;
             c.exit.nextSpawn = chambers[i + 1].spawnPoint;
             c.exit.nextTitle = chambers[i + 1].title;
             c.exit.nextObjective = "";
+            c.exit.nextLoadout = loadouts[i + 1];
         }
 
         FirstPersonController player = BuildPlayer(chambers[0].spawnPoint);
-        var service = new GameObject("Systems").AddComponent<PhysicsPromptService>();
-        MatterHUD hud = BuildHud(chambers[0]);
-        BuildEventSystem();
+        MatterHUD hud = BuildHud(chambers[0], inventory);
 
         var gun = player.GetComponentInChildren<Camera>().gameObject.AddComponent<MatterGun>();
-        gun.promptService = service;
+        gun.inventory = inventory;
         gun.hud = hud;
         gun.player = player;
         gun.baseMaterial = materials["M_SpawnedMatter"];
+        gun.ghostMaterial = Transparent(Lit("M_PlacementGhost", new Color(0.35f, 0.85f, 1f, 0.28f), 0f, 0.5f, null,
+            new Color(0.1f, 0.35f, 0.75f)));
         gun.aimMask = ~((1 << LayerMask.NameToLayer(PlayerLayer)) | (1 << LayerMask.NameToLayer("Ignore Raycast")));
         gun.matterLayerName = MatterLayer;
 
@@ -271,7 +272,9 @@ public static class MaterializeSceneBuilder
         {
             material.EnableKeyword("_EMISSION");
             material.SetColor("_EmissionColor", emission.Value);
-            material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            // URP keeps _EMISSION only while a GI emissive flag is set: with None, its material
+            // validation (which runs during player builds) silently switches emission off
+            material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
         }
         else
         {
@@ -419,10 +422,11 @@ public static class MaterializeSceneBuilder
 
         var sensor = new GameObject("LoadSensor") { layer = LayerMask.NameToLayer("Ignore Raycast") };
         sensor.transform.SetParent(bucket.transform, false);
-        sensor.transform.localPosition = new Vector3(0f, 0.55f, 0f);
+        // tall enough that matter stacked in the bucket still counts
+        sensor.transform.localPosition = new Vector3(0f, 1.55f, 0f);
         var zone = sensor.AddComponent<BoxCollider>();
         zone.isTrigger = true;
-        zone.size = new Vector3(1.3f, 0.95f, 1.3f);
+        zone.size = new Vector3(1.3f, 2.95f, 1.3f);
         var plate = sensor.AddComponent<WeightTriggerPlate>();
         plate.requiredMass = 500f;
         plate.targets = new[] { bucketDrop, portcullis };
@@ -513,10 +517,10 @@ public static class MaterializeSceneBuilder
         Bounds tray = sensorPan.GetComponent<MeshFilter>().sharedMesh.bounds;
         var zoneObject = new GameObject("PanSensor") { layer = LayerMask.NameToLayer("Ignore Raycast") };
         zoneObject.transform.SetParent(sensorPan.transform, false);
-        zoneObject.transform.localPosition = new Vector3(tray.center.x, tray.min.y + 0.55f, tray.center.z);
+        zoneObject.transform.localPosition = new Vector3(tray.center.x, tray.min.y + 1.0f, tray.center.z);
         var zone = zoneObject.AddComponent<BoxCollider>();
         zone.isTrigger = true;
-        zone.size = new Vector3(1.44f, 0.9f, 1.44f);
+        zone.size = new Vector3(1.44f, 1.8f, 1.44f);
 
         var balance = new GameObject("Balance").AddComponent<BalanceScale>();
         balance.transform.SetParent(c.root.transform, false);
@@ -525,6 +529,7 @@ public static class MaterializeSceneBuilder
         balance.weightedPan = weightedBody;
         balance.sensorZone = zone;
         balance.counterweightMass = 640f;
+        balance.tolerance = 0.03f;
         balance.targets = new[] { door };
         balance.indicators = new[] { c.Find("Scale_Light").GetComponent<Renderer>() };
     }
@@ -578,7 +583,7 @@ public static class MaterializeSceneBuilder
                 null, c.Find($"Lock_Light_{i + 1}").GetComponent<Renderer>());
 
         // lock 1: weight
-        var weigh = NewTrigger("WeighSensor", c, c.B(-4f, 12f, 0.5f), new Vector3(2f, 0.9f, 2f)).AddComponent<WeightTriggerPlate>();
+        var weigh = NewTrigger("WeighSensor", c, c.B(-4f, 12f, 1.25f), new Vector3(2f, 2.4f, 2f)).AddComponent<WeightTriggerPlate>();
         weigh.requiredMass = 1500f;
         weigh.targets = new[] { bars[0] };
 
@@ -742,7 +747,136 @@ public static class MaterializeSceneBuilder
         return light;
     }
 
-    // ------------------------------------------------------------------ player, HUD, input
+    // ------------------------------------------------------------------ inventories
+
+    /// <summary>A material for inventory items: density kg/m³, restitution, dynamic / static friction, look.</summary>
+    readonly struct Matter
+    {
+        public readonly float density, bounce, dynamicFriction, staticFriction, roughness, metalness;
+        public readonly string color;
+
+        public Matter(float density, float bounce, float dynamicFriction, float staticFriction, string color, float roughness,
+            float metalness)
+        {
+            this.density = density;
+            this.bounce = bounce;
+            this.dynamicFriction = dynamicFriction;
+            this.staticFriction = staticFriction;
+            this.color = color;
+            this.roughness = roughness;
+            this.metalness = metalness;
+        }
+    }
+
+    static readonly Matter Tungsten = new Matter(19300f, 0.05f, 0.40f, 0.50f, "#8A8D8F", 0.35f, 1f);
+    static readonly Matter Lead = new Matter(11340f, 0.02f, 0.60f, 0.80f, "#5B6168", 0.55f, 0.9f);
+    static readonly Matter Steel = new Matter(7850f, 0.15f, 0.42f, 0.74f, "#8C9196", 0.40f, 1f);
+    static readonly Matter Copper = new Matter(8960f, 0.15f, 0.36f, 0.53f, "#C8703A", 0.30f, 1f);
+    static readonly Matter Oak = new Matter(750f, 0.25f, 0.40f, 0.50f, "#9C6B3C", 0.80f, 0f);
+    static readonly Matter Pine = new Matter(500f, 0.25f, 0.40f, 0.50f, "#C49A6C", 0.80f, 0f);
+    static readonly Matter Cork = new Matter(240f, 0.40f, 0.50f, 0.60f, "#C79A6B", 0.90f, 0f);
+    static readonly Matter Foam = new Matter(30f, 0.30f, 0.80f, 0.90f, "#F2E6A0", 1.00f, 0f);
+    static readonly Matter Ice = new Matter(917f, 0.05f, 0.02f, 0.05f, "#CFEFFF", 0.05f, 0f);
+    // solid rubber: grippy and damped (mats, blocks), below the 0.5 bounce that relaunches the player
+    static readonly Matter Rubber = new Matter(1100f, 0.30f, 0.80f, 1.00f, "#2B2D31", 0.85f, 0f);
+    static readonly Matter BouncyRubber = new Matter(1100f, 0.85f, 0.80f, 1.00f, "#E0442F", 0.85f, 0f);
+    static readonly Matter Trampoline = new Matter(1100f, 0.97f, 0.80f, 1.00f, "#E8862A", 0.60f, 0f);
+
+    /// <summary>
+    /// Each chamber's inventory: what solves it plus a few things that don't. Every chamber brings in
+    /// a new kind of shape: cubes, then ramps and pads, beams, logs, balls, sheets and weights.
+    /// </summary>
+    static ChamberLoadout[] BuildLoadouts(Chamber[] chambers)
+    {
+        InventoryItem[][] items =
+        {
+            // 01 Counterweight
+            new[] { CubeOfMass("Tungsten Cube", 1, Tungsten, 1000f), Cube("Oak Crate", 3, Oak, 0.5f), Cube("Foam Block", 2, Foam, 0.8f) },
+            // 02 The Ledge
+            new[] { Block("Bounce Pad", 1, Trampoline, 2f, 0.3f, 2f), Ramp("Timber Ramp", 1, Pine, 2.5f, 5f, 6.5f), Cube("Oak Crate", 2, Oak, 0.5f) },
+            // 03 The Chasm
+            new[] { Block("Copper Beam", 1, Copper, 0.4f, 0.25f, 6.5f), Block("Oak Beam", 1, Oak, 0.4f, 0.25f, 6.5f), Cube("Oak Crate", 2, Oak, 0.5f) },
+            // 04 The Flood
+            new[]
+            {
+                Block("Cork Raft", 2, Cork, 1.6f, 0.4f, 1.6f), Log("Pine Log", 1, Pine, 0.7f, 4f), Block("Steel Beam", 1, Steel, 0.3f, 0.25f, 5f),
+                Cube("Lead Block", 1, Lead, 0.4f),
+            },
+            // 05 Shatterpoint
+            new[] { Ball("Lead Ball", 1, Lead, 1.2f), Ball("Steel Ball", 1, Steel, 0.5f), Ball("Rubber Ball", 2, BouncyRubber, 0.6f), Cube("Oak Crate", 1, Oak, 0.5f) },
+            // 06 Live Wire
+            new[] { Block("Rubber Mat", 1, Rubber, 2f, 0.1f, 11f), Block("Copper Sheet", 1, Copper, 2f, 0.1f, 11f), Cube("Oak Crate", 2, Oak, 0.5f) },
+            // 07 The Scales
+            new[]
+            {
+                Weight("500 kg Weight", 1, 500f, 0.45f), Weight("100 kg Weight", 2, 100f, 0.3f), Weight("50 kg Weight", 2, 50f, 0.25f),
+                Weight("20 kg Weight", 3, 20f, 0.2f), Weight("10 kg Weight", 2, 10f, 0.15f),
+            },
+            // 08 Grip
+            new[] { Cube("Rubber Block", 1, Rubber, 0.6f), Cube("Ice Block", 2, Ice, 0.6f), Ball("Rubber Ball", 1, BouncyRubber, 0.6f), Cube("Foam Block", 1, Foam, 0.8f) },
+            // 09 Marble Run
+            new[] { Ball("Steel Ball", 1, Steel, 0.5f), Cube("Steel Cube", 2, Steel, 0.4f), Cube("Oak Crate", 1, Oak, 0.5f) },
+            // 10 Synthesis
+            new[]
+            {
+                Block("Rubber Mat", 1, Rubber, 2f, 0.1f, 7f), CubeOfMass("Tungsten Block", 1, Tungsten, 1500f), Block("Copper Beam", 1, Copper, 0.3f, 0.25f, 8f),
+                Ball("Lead Ball", 1, Lead, 1.2f), Block("Oak Beam", 1, Oak, 0.3f, 0.25f, 8f), Ball("Rubber Ball", 1, BouncyRubber, 0.6f),
+                Cube("Oak Crate", 2, Oak, 0.5f),
+            },
+        };
+        if (items.Length != chambers.Length) throw new InvalidOperationException("one inventory per chamber");
+
+        var loadouts = new ChamberLoadout[chambers.Length];
+        for (int i = 0; i < chambers.Length; i++)
+        {
+            loadouts[i] = chambers[i].root.AddComponent<ChamberLoadout>();
+            loadouts[i].items = items[i];
+        }
+        return loadouts;
+    }
+
+    static InventoryItem Item(string name, int count, string shape, Vector3 size, Matter m)
+    {
+        var config = new PhysicalObjectConfig
+        {
+            shape = shape,
+            dimensions = new[] { size.x, size.y, size.z },
+            bounciness = m.bounce,
+            dynamicFriction = m.dynamicFriction,
+            staticFriction = m.staticFriction,
+            hexColor = m.color,
+            roughness = m.roughness,
+            metalness = m.metalness,
+            prompt = name,
+        };
+        config.mass = m.density * config.Volume;
+        config.Sanitize();
+        return new InventoryItem { name = name, count = count, config = config };
+    }
+
+    static InventoryItem Block(string name, int count, Matter m, float x, float y, float z) =>
+        Item(name, count, "cube", new Vector3(x, y, z), m);
+
+    static InventoryItem Cube(string name, int count, Matter m, float side) => Block(name, count, m, side, side, side);
+
+    /// <summary>A cube of the given mass, sized by the material's density.</summary>
+    static InventoryItem CubeOfMass(string name, int count, Matter m, float kg) => Cube(name, count, m, Mathf.Pow(kg / m.density, 1f / 3f));
+
+    static InventoryItem Ball(string name, int count, Matter m, float diameter) => Item(name, count, "sphere", Vector3.one * diameter, m);
+
+    /// <summary>A cylinder lying along the aim direction.</summary>
+    static InventoryItem Log(string name, int count, Matter m, float diameter, float length) =>
+        Item(name, count, "cylinder", new Vector3(diameter, diameter, length), m);
+
+    /// <summary>A ramp rising away from the player.</summary>
+    static InventoryItem Ramp(string name, int count, Matter m, float width, float height, float length) =>
+        Item(name, count, "wedge", new Vector3(width, height, length), m);
+
+    /// <summary>An upright steel disc of the given mass; its thickness follows from the density.</summary>
+    static InventoryItem Weight(string name, int count, float kg, float diameter) =>
+        Item(name, count, "cylinder", new Vector3(diameter, kg / Steel.density / (Mathf.PI / 4f * diameter * diameter), diameter), Steel);
+
+    // ------------------------------------------------------------------ player and HUD
 
     static FirstPersonController BuildPlayer(Transform spawn)
     {
@@ -778,9 +912,10 @@ public static class MaterializeSceneBuilder
         return fps;
     }
 
-    static MatterHUD BuildHud(Chamber first)
+    static MatterHUD BuildHud(Chamber first, Inventory inventory)
     {
-        var canvasObject = new GameObject("HUD", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        // display only: nothing on the HUD is clickable, so no raycaster or EventSystem
+        var canvasObject = new GameObject("HUD", typeof(Canvas), typeof(CanvasScaler));
         var canvas = canvasObject.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 10;
@@ -801,11 +936,11 @@ public static class MaterializeSceneBuilder
         Box("Right", crosshair, middle, new Vector2(11f, 0f), new Vector2(9f, 2f), tick);
 
         // telemetry readout, top-left
-        Image telemetryPanel = Box("TelemetryPanel", root, new Vector2(0f, 1f), new Vector2(24f, -24f), new Vector2(600f, 262f), PanelColor);
-        Box("Accent", telemetryPanel.transform, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 262f), Accent);
+        Image telemetryPanel = Box("TelemetryPanel", root, new Vector2(0f, 1f), new Vector2(24f, -24f), new Vector2(600f, 200f), PanelColor);
+        Box("Accent", telemetryPanel.transform, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 200f), Accent);
         Text telemetry = Label("TelemetryText", telemetryPanel.transform, 21, TextAnchor.UpperLeft, TextColor);
         Pad(telemetry.rectTransform, 24f, 16f, 16f, 12f);
-        telemetry.text = "<b>MATTER TELEMETRY</b>\nNo matter synthesized yet.\nPress <b>T</b>, describe an object, press <b>Enter</b>.";
+        telemetry.text = "<b>MATTER TELEMETRY</b>";
 
         // current chamber, top-right: the name only, no hints
         Image objectivePanel = Box("ObjectivePanel", root, new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(560f, 60f), PanelColor);
@@ -823,65 +958,53 @@ public static class MaterializeSceneBuilder
         message.fontStyle = FontStyle.Bold;
         message.gameObject.AddComponent<Shadow>().effectDistance = new Vector2(2f, -2f);
 
-        // synthesis status, just above the prompt bar
-        RectTransform statusRect = Rect("Status", root, new Vector2(0.5f, 0f), new Vector2(0f, 150f), new Vector2(1500f, 40f));
-        Text status = Label("Text", statusRect, 22, TextAnchor.MiddleCenter, Accent);
-
         // controls hint
-        RectTransform controlsRect = Rect("Controls", root, new Vector2(0f, 0f), new Vector2(24f, 16f), new Vector2(1200f, 30f));
+        RectTransform controlsRect = Rect("Controls", root, new Vector2(0f, 0f), new Vector2(24f, 16f), new Vector2(1500f, 30f));
         Label("Text", controlsRect, 17, TextAnchor.MiddleLeft, new Color(0.62f, 0.7f, 0.78f, 0.9f)).text =
-            "WASD move · Space jump · Shift sprint · T synthesize · Enter fire · G re-fire · X recycle · Esc release mouse";
+            "WASD move · Space jump · Shift sprint · 1-9 / wheel select · Click place · Right-click recycle · R reset room · Esc release mouse";
 
-        // synthesis prompt bar, hidden until T
-        Image bar = Box("PromptBar", root, new Vector2(0.5f, 0f), new Vector2(0f, 64f), new Vector2(1180f, 72f), new Color(0.03f, 0.05f, 0.07f, 0.92f));
-        Box("Accent", bar.transform, new Vector2(0f, 0.5f), Vector2.zero, new Vector2(6f, 72f), Accent);
-        RectTransform tagRect = Rect("Tag", bar.transform, new Vector2(0f, 0.5f), new Vector2(22f, 0f), new Vector2(160f, 72f));
-        Text tag = Label("Text", tagRect, 20, TextAnchor.MiddleLeft, Accent);
-        tag.fontStyle = FontStyle.Bold;
-        tag.text = "SYNTHESIZE ›";
+        // hotbar, bottom centre: one slot per item in the current chamber's inventory
+        RectTransform bar = Rect("Hotbar", root, new Vector2(0.5f, 0f), new Vector2(0f, 56f), new Vector2(92f, 92f));
+        var layout = bar.gameObject.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = 10f;
+        layout.childAlignment = TextAnchor.MiddleCenter;
+        layout.childControlWidth = layout.childControlHeight = false;
+        layout.childForceExpandWidth = layout.childForceExpandHeight = false;
+        var fitter = bar.gameObject.AddComponent<ContentSizeFitter>();
+        fitter.horizontalFit = fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-        RectTransform fieldRect = Rect("PromptField", bar.transform, middle, Vector2.zero, Vector2.zero);
-        Pad(fieldRect, 186f, 22f, 8f, 8f);
-        var fieldBackground = fieldRect.gameObject.AddComponent<Image>();
-        fieldBackground.color = new Color(1f, 1f, 1f, 0.04f);
-        var field = fieldRect.gameObject.AddComponent<InputField>();
-        Text fieldText = Label("Text", fieldRect, 25, TextAnchor.MiddleLeft, Color.white);
-        Pad(fieldText.rectTransform, 14f, 14f, 0f, 0f);
-        fieldText.supportRichText = false;
-        Text placeholder = Label("Placeholder", fieldRect, 25, TextAnchor.MiddleLeft, new Color(0.55f, 0.62f, 0.7f, 0.85f));
-        Pad(placeholder.rectTransform, 14f, 14f, 0f, 0f);
-        placeholder.fontStyle = FontStyle.Italic;
-        placeholder.text = "Describe matter to synthesize... (e.g. 500kg tungsten weight, rubber bouncy wedge)";
-        field.textComponent = fieldText;
-        field.placeholder = placeholder;
-        field.targetGraphic = fieldBackground;
-        field.lineType = InputField.LineType.SingleLine;
-        field.characterLimit = 160;
-        field.customCaretColor = true;
-        field.caretColor = Accent;
-        field.caretWidth = 2;
-        field.selectionColor = new Color(0.2f, 0.75f, 1f, 0.35f);
+        var slots = new MatterHUD.Slot[9];
+        for (int i = 0; i < slots.Length; i++)
+        {
+            Image frame = Box($"Slot{i + 1}", bar, middle, Vector2.zero, new Vector2(92f, 92f), new Color(1f, 1f, 1f, 0.14f));
+            Box("Fill", frame.transform, middle, Vector2.zero, new Vector2(86f, 86f), new Color(0.03f, 0.05f, 0.07f, 0.88f));
+            var icon = Rect("Icon", frame.transform, middle, new Vector2(0f, 3f), new Vector2(72f, 72f)).gameObject.AddComponent<RawImage>();
+            icon.raycastTarget = false;
+            Text key = Label("Key", frame.transform, 15, TextAnchor.UpperLeft, new Color(0.62f, 0.7f, 0.78f, 0.9f));
+            Pad(key.rectTransform, 7f, 6f, 4f, 4f);
+            key.text = (i + 1).ToString();
+            Text count = Label("Count", frame.transform, 18, TextAnchor.LowerRight, Color.white);
+            Pad(count.rectTransform, 6f, 8f, 4f, 4f);
+            count.fontStyle = FontStyle.Bold;
+            count.gameObject.AddComponent<Shadow>().effectDistance = new Vector2(1f, -1f);
+            slots[i] = new MatterHUD.Slot { root = frame.gameObject, frame = frame, icon = icon, count = count };
+        }
+
+        // the selected item's name, above the hotbar
+        RectTransform nameRect = Rect("SelectedName", root, new Vector2(0.5f, 0f), new Vector2(0f, 160f), new Vector2(900f, 34f));
+        Text selectedName = Label("Text", nameRect, 22, TextAnchor.MiddleCenter, Accent);
+        selectedName.fontStyle = FontStyle.Bold;
+        selectedName.gameObject.AddComponent<Shadow>().effectDistance = new Vector2(1.5f, -1.5f);
 
         var hud = canvasObject.AddComponent<MatterHUD>();
-        hud.promptBar = bar.gameObject;
-        hud.promptField = field;
+        hud.inventory = inventory;
+        hud.slots = slots;
+        hud.selectedName = selectedName;
         hud.telemetryText = telemetry;
-        hud.statusText = status;
         hud.messageText = message;
         hud.objectiveTitle = objectiveTitle;
         hud.objectiveText = objectiveText;
-        bar.gameObject.SetActive(false);
         return hud;
-    }
-
-    static void BuildEventSystem()
-    {
-        var eventSystem = new GameObject("EventSystem", typeof(EventSystem));
-#if ENABLE_INPUT_SYSTEM
-        eventSystem.AddComponent<InputSystemUIInputModule>().AssignDefaultActions();
-#else
-        eventSystem.AddComponent<StandaloneInputModule>();
-#endif
     }
 
     // ------------------------------------------------------------------ UI helpers

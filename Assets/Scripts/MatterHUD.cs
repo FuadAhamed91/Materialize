@@ -2,100 +2,100 @@ using System;
 using System.Collections;
 using System.Text;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Screen HUD: crosshair, the hidden synthesis prompt bar (T), the matter telemetry readout,
-/// a status line while the LLM compiles, the chamber objective and flash messages.
+/// Screen HUD: crosshair, the inventory hotbar, telemetry for the selected item, the chamber name
+/// and flash messages.
 /// </summary>
 public class MatterHUD : MonoBehaviour
 {
     public static MatterHUD Instance { get; private set; }
 
-    [Header("Prompt")]
-    public GameObject promptBar;
-    public InputField promptField;
+    [Serializable]
+    public class Slot
+    {
+        public GameObject root;
+        public Image frame;
+        public RawImage icon;
+        public Text count;
+    }
+
+    [Header("Inventory")]
+    public Inventory inventory;
+    public Slot[] slots = new Slot[0];
+    public Text selectedName;
+    public Color frameColor = new Color(1f, 1f, 1f, 0.14f);
+    public Color selectedFrameColor = new Color(0.25f, 0.8f, 1f, 1f);
 
     [Header("Readouts")]
     public Text telemetryText;
-    public Text statusText;
     public Text messageText;
     public Text objectiveTitle;
     public Text objectiveText;
 
-    int synthesizing;
-    string synthesizingLabel = "";
     Coroutine messageRoutine;
-
-    public string PromptText => promptField ? promptField.text : "";
 
     void Awake()
     {
         Instance = this;
-        if (promptBar) promptBar.SetActive(false);
         if (messageText) messageText.text = "";
-        if (statusText) statusText.text = "";
     }
 
-    void Update()
+    void OnEnable()
     {
-        if (synthesizing <= 0 || !statusText) return;
-        int dots = 1 + (int)(Time.unscaledTime * 3f) % 3;
-        statusText.text = $"SYNTHESIZING{new string('.', dots)}   <color=#8FA3B8>\"{synthesizingLabel}\"</color>";
+        if (inventory) inventory.Changed += Refresh;
     }
 
-    public void ShowPrompt(bool show)
+    void OnDisable()
     {
-        if (!promptBar) return;
-        promptBar.SetActive(show);
-        if (show)
+        if (inventory) inventory.Changed -= Refresh;
+    }
+
+    void Start() => Refresh();
+
+    /// <summary>Redraws the hotbar and the telemetry for the selected item.</summary>
+    public void Refresh()
+    {
+        if (!inventory) return;
+        for (int i = 0; i < slots.Length; i++)
         {
-            StartCoroutine(FocusPrompt());
+            Slot slot = slots[i];
+            bool used = i < inventory.SlotCount;
+            if (slot.root.activeSelf != used) slot.root.SetActive(used);
+            if (!used) continue;
+
+            int left = inventory.Count(i);
+            slot.icon.texture = ShapeIcon.For(inventory.Item(i).config);
+            slot.icon.color = new Color(1f, 1f, 1f, left > 0 ? 1f : 0.25f);
+            slot.count.text = Inv($"×{left}");
+            slot.count.color = left > 0 ? Color.white : new Color(1f, 0.45f, 0.35f);
+            slot.frame.color = i == inventory.Selected ? selectedFrameColor : frameColor;
         }
-        else
-        {
-            if (promptField) promptField.DeactivateInputField();
-            if (EventSystem.current) EventSystem.current.SetSelectedGameObject(null);
-        }
+
+        InventoryItem selected = inventory.SelectedItem;
+        if (selectedName) selectedName.text = selected != null ? selected.name.ToUpperInvariant() : "";
+        ShowTelemetry(selected, inventory.Count(inventory.Selected));
     }
 
-    IEnumerator FocusPrompt()
-    {
-        promptField.text = "";
-        promptField.Select();
-        promptField.ActivateInputField();
-        yield return null;
-        yield return null;
-        // the T that opened the prompt can leak into the field on some platforms
-        if (promptField.text == "t" || promptField.text == "T") promptField.text = "";
-    }
-
-    public void BeginSynthesis(string prompt)
-    {
-        synthesizing++;
-        synthesizingLabel = Shorten(prompt, 60);
-    }
-
-    public void EndSynthesis()
-    {
-        synthesizing = Mathf.Max(0, synthesizing - 1);
-        if (synthesizing == 0 && statusText) statusText.text = "";
-    }
-
-    public void ShowTelemetry(PhysicalObjectConfig c, string source)
+    void ShowTelemetry(InventoryItem item, int left)
     {
         if (!telemetryText) return;
+        if (item == null)
+        {
+            telemetryText.text = "<b>MATTER TELEMETRY</b>\nInventory empty.";
+            return;
+        }
+        PhysicalObjectConfig c = item.config;
         Vector3 s = c.Size;
         var sb = new StringBuilder();
         sb.AppendLine("<b>MATTER TELEMETRY</b>");
-        sb.AppendLine(Inv($"<color=#9FB4C8><i>\"{Shorten(c.prompt, 52)}\"</i></color>"));
+        sb.AppendLine(Inv($"<color=#9FB4C8><b>{item.name.ToUpperInvariant()}</b>   ·   {left} of {item.count} left</color>"));
         sb.AppendLine(Inv($"MASS   <b>{c.mass:#,0.0} kg</b>"));
         sb.AppendLine(Inv($"BOUNCINESS   <b>{c.bounciness * 100f:0}%</b>"));
         sb.AppendLine(Inv($"FRICTION   <b>{c.dynamicFriction:0.00}</b> dynamic · <b>{c.staticFriction:0.00}</b> static"));
         sb.AppendLine(Inv($"SHAPE   {c.shape}  {s.x:0.##} × {s.y:0.##} × {s.z:0.##} m"));
-        sb.AppendLine(Inv($"DENSITY   {c.Density:#,0} kg/m³   ·   METALNESS {c.metalness:0.##}"));
-        sb.Append(Inv($"<size=17><color=#7E93A8>{source}</color></size>"));
+        sb.Append(Inv($"DENSITY   {c.Density:#,0} kg/m³   ·   METALNESS {c.metalness:0.##}"));
         telemetryText.text = sb.ToString();
     }
 
@@ -128,10 +128,4 @@ public class MatterHUD : MonoBehaviour
     }
 
     static string Inv(FormattableString text) => FormattableString.Invariant(text);
-
-    static string Shorten(string text, int max)
-    {
-        text = (text ?? "").Replace('\n', ' ');
-        return text.Length <= max ? text : text.Substring(0, max - 1) + "…";
-    }
 }

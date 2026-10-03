@@ -15,6 +15,9 @@ public class BuoyancyVolume : MonoBehaviour
     public float linearDrag = 1.5f;
     public float angularDrag = 2f;
 
+    /// <summary>Every active body of water, so the Matter Gun can aim at the surface.</summary>
+    public static readonly List<BuoyancyVolume> All = new List<BuoyancyVolume>();
+
     BoxCollider zone;
     readonly Collider[] hits = new Collider[64];
     readonly HashSet<Rigidbody> bodies = new HashSet<Rigidbody>();
@@ -25,6 +28,21 @@ public class BuoyancyVolume : MonoBehaviour
     {
         zone = GetComponent<BoxCollider>();
         zone.isTrigger = true;
+    }
+
+    void OnEnable() => All.Add(this);
+    void OnDisable() => All.Remove(this);
+
+    /// <summary>Distance along a downward ray to where it meets the water surface, if it does.</summary>
+    public bool RaycastSurface(Ray ray, float maxDistance, out float distance)
+    {
+        distance = 0f;
+        if (!zone || ray.direction.y > -1e-4f) return false;
+        Bounds water = zone.bounds;
+        distance = (water.max.y - ray.origin.y) / ray.direction.y;
+        if (distance < 0f || distance > maxDistance) return false;
+        Vector3 point = ray.GetPoint(distance);
+        return point.x >= water.min.x && point.x <= water.max.x && point.z >= water.min.z && point.z <= water.max.z;
     }
 
     void FixedUpdate()

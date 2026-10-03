@@ -1,12 +1,17 @@
 using UnityEngine;
 
-/// <summary>Trigger in each exit vestibule: moves the player to the next chamber, or ends the run.</summary>
+/// <summary>
+/// Trigger in each exit vestibule: moves the player to the next chamber and swaps in that chamber's
+/// inventory, or ends the run.
+/// </summary>
 [RequireComponent(typeof(BoxCollider))]
 public class ChamberExit : MonoBehaviour
 {
     public Transform nextSpawn;
     public string nextTitle;
     [TextArea] public string nextObjective;
+    public Inventory inventory;
+    public ChamberLoadout nextLoadout;
     public string completionMessage = "ALL CHAMBERS COMPLETE · MATTER SYNTHESIS CERTIFIED";
 
     bool used;
@@ -24,6 +29,7 @@ public class ChamberExit : MonoBehaviour
         {
             player.SetCheckpoint(nextSpawn);
             player.Teleport(nextSpawn.position, nextSpawn.eulerAngles.y);
+            if (inventory && nextLoadout) inventory.Load(nextLoadout);
             if (hud)
             {
                 hud.SetObjective(nextTitle, nextObjective);
@@ -32,7 +38,7 @@ public class ChamberExit : MonoBehaviour
         }
         else if (hud)
         {
-            hud.SetObjective("COMPLETE", completionMessage);
+            hud.SetObjective("ALL CHAMBERS COMPLETE", "");
             hud.Flash(completionMessage, new Color(0.5f, 1f, 0.6f), 8f);
         }
     }

@@ -1,28 +1,30 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 /// <summary>
-/// The Matter Gun. T opens the synthesis prompt, Enter sends it to the PhysicsPromptService, and the
-/// compiled matter materializes where the centre of the screen points, with a Rigidbody, a runtime
-/// PhysicsMaterial and a tinted URP Lit material. G re-fires the last matter; X recycles the matter
-/// under the crosshair.
+/// The Matter Gun. Places the hotbar's selected item where the centre of the screen points, as real
+/// physics matter: a Rigidbody with the item's mass, a runtime PhysicsMaterial and a tinted URP Lit
+/// material. A translucent preview shows where it will land. Right click recycles the matter under
+/// the crosshair and R resets the room; both return the items to the inventory.
 /// </summary>
 [RequireComponent(typeof(Camera))]
 public class MatterGun : MonoBehaviour
 {
     [Header("References")]
-    public PhysicsPromptService promptService;
+    public Inventory inventory;
     public MatterHUD hud;
     public FirstPersonController player;
-    [Tooltip("URP Lit material cloned for every synthesized object.")]
+    [Tooltip("URP Lit material cloned for every placed object.")]
     public Material baseMaterial;
+    [Tooltip("Transparent material for the placement preview.")]
+    public Material ghostMaterial;
 
     [Header("Aiming")]
     public LayerMask aimMask = ~0;
     public float maxRange = 40f;
 
     [Header("Matter")]
-    public int maxSpawned = 12;
     public float materializeSeconds = 0.35f;
     public string matterLayerName = "Matter";
 
@@ -33,82 +35,75 @@ public class MatterGun : MonoBehaviour
     }
 
     Camera cam;
-    bool typing;
-    PhysicalObjectConfig lastConfig;
-    string lastSource;
+    Transform ghost;
+    MeshFilter ghostFilter;
+    bool wasLocked;
     int serial;
     readonly List<SpawnedMatter> spawned = new List<SpawnedMatter>();
     readonly Collider[] overlaps = new Collider[32];
-    static Mesh wedgeMesh;
+    static Mesh wedgeMesh, cylinderMesh, cubeMesh, sphereMesh;
 
-    public bool IsTyping => typing;
     public IReadOnlyList<SpawnedMatter> Spawned => spawned;
 
-    void Awake() => cam = GetComponent<Camera>();
+    void Awake()
+    {
+        cam = GetComponent<Camera>();
+        BuildGhost();
+        SpawnedMatter.Removed += OnMatterRemoved;
+    }
+
+    void OnDestroy() => SpawnedMatter.Removed -= OnMatterRemoved;
+
+    void OnMatterRemoved(SpawnedMatter matter)
+    {
+        spawned.Remove(matter);
+        if (inventory) inventory.Refund(matter.Loadout, matter.Slot);
+    }
 
     void Update()
     {
-        if (typing)
+        if (!inventory) return;
+
+        int slot = GameInput.SlotPressed;
+        if (slot >= 0 && slot < inventory.SlotCount) inventory.Select(slot);
+        float scroll = GameInput.Scroll;
+        if (scroll > 0.01f) inventory.Select(inventory.Selected - 1);
+        else if (scroll < -0.01f) inventory.Select(inventory.Selected + 1);
+
+        // act on clicks only once the mouse is already captured: the capturing click isn't a placement
+        bool locked = Cursor.lockState == CursorLockMode.Locked;
+        bool ready = locked && wasLocked;
+        wasLocked = locked;
+
+        if (ready && GameInput.PlacePressed) PlaceSelected(CaptureAim());
+        else if (ready && GameInput.RecyclePressed) RecycleAimed();
+        else if (GameInput.ResetPressed) ResetRoom();
+
+        UpdateGhost(locked);
+    }
+
+    /// <summary>Selects a slot and places it on a surface point (tests, demo scripts).</summary>
+    public bool PlaceAt(int slot, Vector3 point, Vector3 normal)
+    {
+        inventory.Select(slot);
+        return PlaceSelected(new Aim { hit = true, point = point, normal = normal.normalized, flatForward = FlatForward() });
+    }
+
+    bool PlaceSelected(Aim aim)
+    {
+        if (!inventory.TryTake(out InventoryItem item, out int slot))
         {
-            if (GameInput.SubmitPressed) Submit(hud ? hud.PromptText : "");
-            else if (GameInput.CancelPressed) ClosePrompt();
-            return;
+            InventoryItem selected = inventory.SelectedItem;
+            if (hud) hud.Flash(selected != null ? $"No {selected.name} left" : "Nothing to place", new Color(1f, 0.6f, 0.4f), 2f);
+            return false;
         }
 
-        if (GameInput.OpenPromptPressed) OpenPrompt();
-        else if (GameInput.RepeatPressed) Refire();
-        else if (GameInput.DeletePressed) RecycleAimed();
-    }
-
-    void OpenPrompt()
-    {
-        typing = true;
-        if (player) player.InputLocked = true;
-        if (hud) hud.ShowPrompt(true);
-    }
-
-    void ClosePrompt()
-    {
-        typing = false;
-        if (player) player.InputLocked = false;
-        if (hud) hud.ShowPrompt(false);
-    }
-
-    void Submit(string text)
-    {
-        ClosePrompt();
-        text = (text ?? "").Trim();
-        if (text.Length == 0) return;
-        Synthesize(text, CaptureAim());
-    }
-
-    /// <summary>Compiles <paramref name="description"/> and materializes it at the current crosshair.</summary>
-    public void Synthesize(string description) => Synthesize(description, CaptureAim());
-
-    /// <summary>Compiles <paramref name="description"/> and materializes it on a surface point (tests, demo scripts).</summary>
-    public void SynthesizeAt(string description, Vector3 point, Vector3 normal)
-    {
-        Synthesize(description, new Aim { hit = true, point = point, normal = normal.normalized, flatForward = FlatForward() });
-    }
-
-    void Synthesize(string description, Aim aim)
-    {
-        if (hud) hud.BeginSynthesis(description);
-        promptService.Compile(description, (config, source) =>
-        {
-            if (hud) hud.EndSynthesis();
-            Materialize(config, aim, source);
-        });
-    }
-
-    void Refire()
-    {
-        if (lastConfig == null)
-        {
-            if (hud) hud.Flash("Nothing synthesized yet · press T");
-            return;
-        }
-        Materialize(lastConfig.Clone(), CaptureAim(), lastSource);
+        Quaternion rotation = AimRotation(aim);
+        SpawnedMatter matter = Build(item.config.Clone(), Place(aim, item.config.Size, rotation), rotation, item.name);
+        matter.Loadout = inventory.loadout;
+        matter.Slot = slot;
+        spawned.Add(matter);
+        return true;
     }
 
     void RecycleAimed()
@@ -117,9 +112,21 @@ public class MatterGun : MonoBehaviour
         if (!Physics.Raycast(ray, out RaycastHit hit, maxRange, aimMask, QueryTriggerInteraction.Ignore)) return;
         Rigidbody body = hit.collider.attachedRigidbody;
         SpawnedMatter matter = body ? body.GetComponent<SpawnedMatter>() : null;
-        if (matter == null) return;
-        matter.Dissolve();
-        if (hud) hud.Flash($"Recycled {matter.Config.mass:N0} kg of matter");
+        if (matter == null || matter.IsDissolving) return;
+        matter.Dissolve(); // refunded when it finishes dissolving
+        if (hud) hud.Flash($"Recycled {matter.Source}", 1.5f);
+    }
+
+    void ResetRoom()
+    {
+        int count = 0;
+        foreach (SpawnedMatter matter in spawned.ToArray())
+        {
+            if (!matter || matter.IsDissolving || matter.Loadout != inventory.loadout) continue;
+            matter.Dissolve();
+            count++;
+        }
+        if (hud) hud.Flash(count > 0 ? "Room reset" : "Nothing to reset", 1.5f);
     }
 
     Vector3 FlatForward()
@@ -132,33 +139,56 @@ public class MatterGun : MonoBehaviour
     Aim CaptureAim()
     {
         Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-        if (Physics.Raycast(ray, out RaycastHit hit, maxRange, aimMask, QueryTriggerInteraction.Ignore))
-            return new Aim { hit = true, point = hit.point, normal = hit.normal, flatForward = FlatForward() };
+        bool solid = Physics.Raycast(ray, out RaycastHit hit, maxRange, aimMask, QueryTriggerInteraction.Ignore);
+        // aiming into water drops matter on the surface, where floating and sinking are decided
+        float range = solid ? hit.distance : maxRange;
+        foreach (BuoyancyVolume water in BuoyancyVolume.All)
+            if (water.RaycastSurface(ray, range, out float distance))
+                return new Aim { hit = true, point = ray.GetPoint(distance), normal = Vector3.up, flatForward = FlatForward() };
+        if (solid) return new Aim { hit = true, point = hit.point, normal = hit.normal, flatForward = FlatForward() };
         return new Aim { hit = false, point = ray.GetPoint(6f), normal = Vector3.zero, flatForward = FlatForward() };
     }
 
-    void Materialize(PhysicalObjectConfig config, Aim aim, string source)
+    /// <summary>Faces away from the player; on a ramp or slope, sits flush with it.</summary>
+    static Quaternion AimRotation(Aim aim)
     {
         Quaternion rotation = Quaternion.LookRotation(aim.flatForward, Vector3.up);
-        // on a ramp or slope, sit flush with it instead of landing on an edge
         if (aim.hit && aim.normal.y > 0.6f && aim.normal.y < 0.98f)
             rotation = Quaternion.FromToRotation(Vector3.up, aim.normal) * rotation;
-        Vector3 position = Place(aim, config.Size, rotation);
-        SpawnedMatter matter = Build(config, position, rotation, source);
-
-        spawned.RemoveAll(m => m == null);
-        spawned.Add(matter);
-        while (spawned.Count > maxSpawned)
-        {
-            SpawnedMatter oldest = spawned[0];
-            spawned.RemoveAt(0);
-            if (oldest) oldest.Dissolve();
-        }
-
-        lastConfig = config.Clone();
-        lastSource = source;
-        if (hud) hud.ShowTelemetry(config, source);
+        return rotation;
     }
+
+    // ------------------------------------------------------------------ placement preview
+
+    void BuildGhost()
+    {
+        var go = new GameObject("PlacementPreview");
+        ghost = go.transform;
+        ghostFilter = go.AddComponent<MeshFilter>();
+        var renderer = go.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = ghostMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        go.SetActive(false);
+    }
+
+    void UpdateGhost(bool locked)
+    {
+        InventoryItem item = inventory.SelectedItem;
+        bool show = locked && ghostMaterial && item != null && inventory.Count(inventory.Selected) > 0;
+        if (show != ghost.gameObject.activeSelf) ghost.gameObject.SetActive(show);
+        if (!show) return;
+
+        Aim aim = CaptureAim();
+        Quaternion rotation = AimRotation(aim);
+        Vector3 position = Place(aim, item.config.Size, rotation);
+        ShapeVisual(item.config, out Mesh mesh, out Vector3 scale, out Quaternion local);
+        ghostFilter.sharedMesh = mesh;
+        ghost.SetPositionAndRotation(position, rotation * local);
+        ghost.localScale = scale;
+    }
+
+    // ------------------------------------------------------------------ placement
 
     /// <summary>Where the matter's centre goes so it rests on (or against) the aimed surface.</summary>
     Vector3 Place(Aim aim, Vector3 size, Quaternion rotation)
@@ -219,60 +249,39 @@ public class MatterGun : MonoBehaviour
             Mathf.Abs(m.m20) * h.x + Mathf.Abs(m.m21) * h.y + Mathf.Abs(m.m22) * h.z);
     }
 
-    SpawnedMatter Build(PhysicalObjectConfig c, Vector3 position, Quaternion rotation, string source)
+    // ------------------------------------------------------------------ building matter
+
+    SpawnedMatter Build(PhysicalObjectConfig c, Vector3 position, Quaternion rotation, string label)
     {
-        var root = new GameObject($"Matter_{++serial:00}_{c.shape}");
+        var root = new GameObject($"Matter_{++serial:00}_{label}");
         int layer = LayerMask.NameToLayer(matterLayerName);
         if (layer >= 0) root.layer = layer;
         root.transform.SetPositionAndRotation(position, rotation);
 
-        Vector3 s = c.Size;
-        GameObject body;
+        ShapeVisual(c, out Mesh mesh, out Vector3 scale, out Quaternion local);
+        var body = new GameObject("Body", typeof(MeshFilter), typeof(MeshRenderer)) { layer = root.layer };
+        body.transform.SetParent(root.transform, false);
+        body.transform.localRotation = local;
+        body.transform.localScale = scale;
+        body.GetComponent<MeshFilter>().sharedMesh = mesh;
+
         Collider collider;
         switch (c.shape)
         {
             case "sphere":
-                body = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                body.transform.localScale = Vector3.one * s.x;
-                collider = body.GetComponent<Collider>();
+                collider = body.AddComponent<SphereCollider>(); // unit sphere: radius 0.5
                 break;
             case "cylinder":
-                body = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                DestroyImmediate(body.GetComponent<Collider>()); // the default capsule rolls like a pill
-                if (PhysicalObjectConfig.CylinderLiesAlongZ(s))
-                {
-                    float d = Mathf.Max(s.x, s.y);
-                    body.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-                    body.transform.localScale = new Vector3(d, s.z * 0.5f, d);
-                }
-                else
-                {
-                    float d = Mathf.Max(s.x, s.z);
-                    body.transform.localScale = new Vector3(d, s.y * 0.5f, d);
-                }
-                var cylinderCollider = body.AddComponent<MeshCollider>();
-                cylinderCollider.sharedMesh = body.GetComponent<MeshFilter>().sharedMesh;
-                cylinderCollider.convex = true;
-                collider = cylinderCollider;
-                break;
             case "wedge":
-                body = new GameObject("Body", typeof(MeshFilter), typeof(MeshRenderer));
-                body.GetComponent<MeshFilter>().sharedMesh = WedgeMesh;
-                body.transform.localScale = s;
-                var wedgeCollider = body.AddComponent<MeshCollider>();
-                wedgeCollider.sharedMesh = WedgeMesh;
-                wedgeCollider.convex = true;
-                collider = wedgeCollider;
+                var hull = body.AddComponent<MeshCollider>();
+                hull.sharedMesh = mesh;
+                hull.convex = true;
+                collider = hull;
                 break;
             default:
-                body = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                body.transform.localScale = s;
-                collider = body.GetComponent<Collider>();
+                collider = body.AddComponent<BoxCollider>(); // unit box
                 break;
         }
-        body.name = "Body";
-        body.layer = root.layer;
-        body.transform.SetParent(root.transform, false);
 
         Depenetrate(root.transform, collider);
 
@@ -305,8 +314,44 @@ public class MatterGun : MonoBehaviour
         renderer.sharedMaterial = material;
 
         var matter = root.AddComponent<SpawnedMatter>();
-        matter.Init(c, source, rb, renderer, physicsMaterial, material, materializeSeconds);
+        matter.Init(c, label, rb, renderer, physicsMaterial, material, materializeSeconds);
         return matter;
+    }
+
+    /// <summary>Mesh and local transform that give a unit shape the config's size.</summary>
+    public static void ShapeVisual(PhysicalObjectConfig c, out Mesh mesh, out Vector3 scale, out Quaternion local)
+    {
+        Vector3 s = c.Size;
+        local = Quaternion.identity;
+        switch (c.shape)
+        {
+            case "sphere":
+                mesh = SphereMesh;
+                scale = Vector3.one * s.x;
+                break;
+            case "cylinder":
+                mesh = CylinderMesh;
+                if (PhysicalObjectConfig.CylinderLiesAlongZ(s))
+                {
+                    float d = Mathf.Max(s.x, s.y);
+                    local = Quaternion.Euler(90f, 0f, 0f);
+                    scale = new Vector3(d, s.z * 0.5f, d);
+                }
+                else
+                {
+                    float d = Mathf.Max(s.x, s.z);
+                    scale = new Vector3(d, s.y * 0.5f, d);
+                }
+                break;
+            case "wedge":
+                mesh = WedgeMesh;
+                scale = s;
+                break;
+            default:
+                mesh = CubeMesh;
+                scale = s;
+                break;
+        }
     }
 
     /// <summary>
@@ -351,7 +396,70 @@ public class MatterGun : MonoBehaviour
         return found;
     }
 
+    // ------------------------------------------------------------------ meshes
+
+    static Mesh CubeMesh => cubeMesh ? cubeMesh : (cubeMesh = PrimitiveMesh(PrimitiveType.Cube));
+    static Mesh SphereMesh => sphereMesh ? sphereMesh : (sphereMesh = PrimitiveMesh(PrimitiveType.Sphere));
+    // generated rather than built-in so it is always readable for convex collision cooking in builds
+    static Mesh CylinderMesh => cylinderMesh ? cylinderMesh : (cylinderMesh = BuildCylinderMesh());
     static Mesh WedgeMesh => wedgeMesh ? wedgeMesh : (wedgeMesh = BuildWedgeMesh());
+
+    /// <summary>
+    /// The engine's own unit primitive mesh, as CreatePrimitive uses it. (The built-in resource
+    /// "Sphere.fbx" is a legacy 2 m sphere, so it can't be looked up by name.)
+    /// </summary>
+    static Mesh PrimitiveMesh(PrimitiveType type)
+    {
+        var temp = GameObject.CreatePrimitive(type);
+        Mesh mesh = temp.GetComponent<MeshFilter>().sharedMesh;
+        DestroyImmediate(temp); // gone before the next physics step
+        return mesh;
+    }
+
+    /// <summary>Unit cylinder matching Unity's primitive: radius 0.5, height 2 along Y.</summary>
+    static Mesh BuildCylinderMesh(int segments = 24)
+    {
+        var vertices = new List<Vector3>();
+        var normals = new List<Vector3>();
+        var triangles = new List<int>();
+        for (int i = 0; i <= segments; i++)
+        {
+            float a = 2f * Mathf.PI * i / segments;
+            var n = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+            vertices.Add(n * 0.5f + Vector3.down);
+            vertices.Add(n * 0.5f + Vector3.up);
+            normals.Add(n);
+            normals.Add(n);
+        }
+        for (int i = 0; i < segments; i++)
+        {
+            int b = i * 2;
+            triangles.AddRange(new[] { b, b + 1, b + 2, b + 2, b + 1, b + 3 });
+        }
+        foreach (float y in new[] { -1f, 1f })
+        {
+            int center = vertices.Count;
+            vertices.Add(new Vector3(0f, y, 0f));
+            normals.Add(new Vector3(0f, y, 0f));
+            for (int i = 0; i <= segments; i++)
+            {
+                float a = 2f * Mathf.PI * i / segments;
+                vertices.Add(new Vector3(Mathf.Cos(a) * 0.5f, y, Mathf.Sin(a) * 0.5f));
+                normals.Add(new Vector3(0f, y, 0f));
+            }
+            for (int i = 0; i < segments; i++)
+            {
+                if (y > 0f) triangles.AddRange(new[] { center, center + i + 2, center + i + 1 });
+                else triangles.AddRange(new[] { center, center + i + 1, center + i + 2 });
+            }
+        }
+        var mesh = new Mesh { name = "MatterCylinder" };
+        mesh.SetVertices(vertices);
+        mesh.SetNormals(normals);
+        mesh.SetTriangles(triangles, 0);
+        mesh.RecalculateBounds();
+        return mesh;
+    }
 
     /// <summary>Unit ramp (1 x 1 x 1): low edge at z = -0.5, rising to a ridge at z = +0.5.</summary>
     static Mesh BuildWedgeMesh()
