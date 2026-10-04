@@ -12,7 +12,7 @@ A first-person physics puzzle game across ten test chambers. Each chamber gives 
 
 1. Open `Assets/Scenes/Materialize.unity` and press **Play**. Click the Game view to capture the mouse.
 2. Controls: **WASD** move · **Space** jump · **Shift** sprint · **1–9** or the **mouse wheel** select an item · **left click** (or **F**) place it · **right click** (or **X**) recycle the object under the crosshair · **R** reset the room · **Esc** release the mouse.
-3. A translucent preview shows where the selected object will land. Long objects (≥ 2.5 m) land with their **far end** on the crosshair, so a beam aimed at a far target spans back towards you. Aiming into water drops the object onto the surface, where it floats or sinks.
+3. A translucent preview shows where the selected object will land. Objects are squared to the room (nearest 90°) and face away from you. Long objects (≥ 2.5 m) land with their **far end** on the crosshair, so a beam aimed at a far target spans straight back towards you. Aiming into water drops the object onto the surface, where it floats or sinks.
 4. Nothing is lost for good. Recycling, resetting the room, or losing an object to acid or a fall returns it to the inventory. Walking through a chamber's exit loads the next chamber's inventory.
 
 ## Chamber solutions (spoilers: team only)

@@ -149,10 +149,14 @@ public class MatterGun : MonoBehaviour
         return new Aim { hit = false, point = ray.GetPoint(6f), normal = Vector3.zero, flatForward = FlatForward() };
     }
 
-    /// <summary>Faces away from the player; on a ramp or slope, sits flush with it.</summary>
+    /// <summary>
+    /// Faces away from the player, squared to the room (nearest 90 degrees) so beams and mats bridge
+    /// straight across a gap instead of skewing with the view angle. On a ramp or slope, sits flush with it.
+    /// </summary>
     static Quaternion AimRotation(Aim aim)
     {
-        Quaternion rotation = Quaternion.LookRotation(aim.flatForward, Vector3.up);
+        float yaw = Mathf.Round(Mathf.Atan2(aim.flatForward.x, aim.flatForward.z) * Mathf.Rad2Deg / 90f) * 90f;
+        Quaternion rotation = Quaternion.Euler(0f, yaw, 0f);
         if (aim.hit && aim.normal.y > 0.6f && aim.normal.y < 0.98f)
             rotation = Quaternion.FromToRotation(Vector3.up, aim.normal) * rotation;
         return rotation;
