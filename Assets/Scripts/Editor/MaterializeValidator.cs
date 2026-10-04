@@ -113,6 +113,14 @@ public static class MaterializeValidator
         else if (inventory == null || inventory.loadout == null) Fail("no Inventory with a starting loadout");
         else Pass($"{loadouts.Count} chamber inventories ({string.Join(" / ", loadouts.Select(l => l.items.Length))} slots, {loadouts.Sum(l => l.items.Sum(i => i.count))} items); the run starts with {inventory.loadout.name}");
 
+        var flow = Object.FindFirstObjectByType<LevelFlow>();
+        if (flow == null || flow.player == null || flow.inventory == null || flow.restartButton == null || flow.restartFill == null)
+            Fail("LevelFlow (level restart) is not wired");
+        else if (flow.chambers.Length != expected || flow.spawns.Length != expected || flow.titles.Length != expected ||
+                 flow.chambers.Any(c => c == null) || flow.spawns.Any(t => t == null))
+            Fail($"LevelFlow needs {expected} chambers, spawns and titles");
+        else Pass($"level restart: R or the RESTART LEVEL button returns to the current chamber's entrance ({flow.chambers.Length} chambers)");
+
         int water = Object.FindObjectsByType<BuoyancyVolume>(FindObjectsSortMode.None).Length;
         var seals = Object.FindObjectsByType<ImpactSeal>(FindObjectsSortMode.None);
         var decks = Object.FindObjectsByType<ElectrifiedFloor>(FindObjectsSortMode.None);

@@ -6,7 +6,7 @@ using UnityEngine.Rendering;
 /// The Matter Gun. Places the hotbar's selected item where the centre of the screen points, as real
 /// physics matter: a Rigidbody with the item's mass, a runtime PhysicsMaterial and a tinted URP Lit
 /// material. A translucent preview shows where it will land. Right click recycles the matter under
-/// the crosshair and R resets the room; both return the items to the inventory.
+/// the crosshair and returns it to the inventory.
 /// </summary>
 [RequireComponent(typeof(Camera))]
 public class MatterGun : MonoBehaviour
@@ -77,7 +77,6 @@ public class MatterGun : MonoBehaviour
 
         if (ready && GameInput.PlacePressed) PlaceSelected(CaptureAim());
         else if (ready && GameInput.RecyclePressed) RecycleAimed();
-        else if (GameInput.ResetPressed) ResetRoom();
 
         UpdateGhost(locked);
     }
@@ -115,18 +114,6 @@ public class MatterGun : MonoBehaviour
         if (matter == null || matter.IsDissolving) return;
         matter.Dissolve(); // refunded when it finishes dissolving
         if (hud) hud.Flash($"Recycled {matter.Source}", 1.5f);
-    }
-
-    void ResetRoom()
-    {
-        int count = 0;
-        foreach (SpawnedMatter matter in spawned.ToArray())
-        {
-            if (!matter || matter.IsDissolving || matter.Loadout != inventory.loadout) continue;
-            matter.Dissolve();
-            count++;
-        }
-        if (hud) hud.Flash(count > 0 ? "Room reset" : "Nothing to reset", 1.5f);
     }
 
     Vector3 FlatForward()

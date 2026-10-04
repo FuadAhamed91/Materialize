@@ -157,6 +157,13 @@ public static class MaterializeSceneBuilder
 
         FirstPersonController player = BuildPlayer(chambers[0].spawnPoint);
         MatterHUD hud = BuildHud(chambers[0], inventory);
+        var flow = inventory.gameObject.AddComponent<LevelFlow>();
+        flow.player = player;
+        flow.inventory = inventory;
+        flow.chambers = loadouts;
+        flow.spawns = chambers.Select(c => c.spawnPoint).ToArray();
+        flow.titles = chambers.Select(c => c.title).ToArray();
+        BuildRestartButton(hud.transform, flow);
 
         var gun = player.GetComponentInChildren<Camera>().gameObject.AddComponent<MatterGun>();
         gun.inventory = inventory;
@@ -234,21 +241,17 @@ public static class MaterializeSceneBuilder
         };
     }
 
-    /// <summary>Switches a URP Lit material to alpha-blended transparency.</summary>
+    /// <summary>
+    /// Switches a URP Lit material to alpha-blended transparency that casts no shadow. URP derives the
+    /// blend factors, keywords, queue and passes itself, exactly as its material validation will later:
+    /// setting them by hand left premultiplied alpha applied twice whenever the two disagreed.
+    /// </summary>
     static Material Transparent(Material material)
     {
         material.SetFloat("_Surface", 1f);
         material.SetFloat("_Blend", 0f);
-        material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-        material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
-        material.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
-        material.SetFloat("_DstBlendAlpha", (float)BlendMode.OneMinusSrcAlpha);
-        material.SetFloat("_ZWrite", 0f);
-        material.SetOverrideTag("RenderType", "Transparent");
-        material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-        material.renderQueue = (int)RenderQueue.Transparent;
-        material.SetShaderPassEnabled("ShadowCaster", false);
-        material.SetShaderPassEnabled("DepthOnly", false);
+        material.SetFloat("_CastShadows", 0f);
+        BaseShaderGUI.SetMaterialKeywords(material);
         EditorUtility.SetDirty(material);
         return material;
     }
@@ -280,6 +283,7 @@ public static class MaterializeSceneBuilder
         {
             material.DisableKeyword("_EMISSION");
         }
+        BaseShaderGUI.SetMaterialKeywords(material);
         EditorUtility.SetDirty(material);
         return material;
     }
@@ -961,7 +965,7 @@ public static class MaterializeSceneBuilder
         // controls hint
         RectTransform controlsRect = Rect("Controls", root, new Vector2(0f, 0f), new Vector2(24f, 16f), new Vector2(1500f, 30f));
         Label("Text", controlsRect, 17, TextAnchor.MiddleLeft, new Color(0.62f, 0.7f, 0.78f, 0.9f)).text =
-            "WASD move · Space jump · Shift sprint · 1-9 / wheel select · Click place · Right-click recycle · R reset room · Esc release mouse";
+            "WASD move · Space jump · Shift sprint · 1-9 / wheel select · Click place · Right-click recycle · R restart level · Esc release mouse";
 
         // hotbar, bottom centre: one slot per item in the current chamber's inventory
         RectTransform bar = Rect("Hotbar", root, new Vector2(0.5f, 0f), new Vector2(0f, 56f), new Vector2(92f, 92f));
@@ -1008,6 +1012,18 @@ public static class MaterializeSceneBuilder
     }
 
     // ------------------------------------------------------------------ UI helpers
+
+    /// <summary>Top right, under the chamber name. Press R, or click it while the mouse is free.</summary>
+    static void BuildRestartButton(Transform hudRoot, LevelFlow flow)
+    {
+        Image fill = Box("RestartButton", hudRoot, new Vector2(1f, 1f), new Vector2(-24f, -92f), new Vector2(250f, 42f), PanelColor);
+        Text label = Label("Text", fill.transform, 18, TextAnchor.MiddleCenter, TextColor);
+        label.fontStyle = FontStyle.Bold;
+        label.text = "RESTART LEVEL   <color=#FFC240>R</color>";
+        flow.restartButton = fill.rectTransform;
+        flow.restartFill = fill;
+        flow.idleColor = PanelColor;
+    }
 
     static Font UiFont => Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 

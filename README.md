@@ -11,9 +11,10 @@ A first-person physics puzzle game across ten test chambers. Each chamber gives 
 ## Play
 
 1. Open `Assets/Scenes/Materialize.unity` and press **Play**. Click the Game view to capture the mouse.
-2. Controls: **WASD** move · **Space** jump · **Shift** sprint · **1–9** or the **mouse wheel** select an item · **left click** (or **F**) place it · **right click** (or **X**) recycle the object under the crosshair · **R** reset the room · **Esc** release the mouse.
+2. Controls: **WASD** move · **Space** jump · **Shift** sprint · **1–9** or the **mouse wheel** select an item · **left click** (or **F**) place it · **right click** (or **X**) recycle the object under the crosshair · **R** restart the level · **Esc** release the mouse.
 3. A translucent preview shows where the selected object will land. Objects are squared to the room (nearest 90°) and face away from you. Long objects (≥ 2.5 m) land with their **far end** on the crosshair, so a beam aimed at a far target spans straight back towards you. Aiming into water drops the object onto the surface, where it floats or sinks.
-4. Nothing is lost for good. Recycling, resetting the room, or losing an object to acid or a fall returns it to the inventory. Walking through a chamber's exit loads the next chamber's inventory.
+4. Nothing is lost for good. Recycling, or losing an object to acid or a fall, returns it to the inventory. Walking through a chamber's exit loads the next chamber's inventory.
+5. To start a level over, press **R**, or press **Esc** and click **RESTART LEVEL** (top right). The room's doors, plates, circuits, glass and scale reset, your inventory refills, and you're back at the level's entrance.
 
 ## Chamber solutions (spoilers: team only)
 
@@ -30,7 +31,7 @@ A first-person physics puzzle game across ten test chambers. Each chamber gives 
 | 09 Marble Run | Shape | Steel Ball ×1, Steel Cube ×2, Oak Crate ×1 | A 0.6 m gutter runs through a porthole to a hidden button | Aim into the near end of the gutter and place the Steel Ball. It rolls through the wall | Cubes stay put on the shallow slope |
 | 10 Synthesis | Everything | Rubber Mat 7 m, Tungsten Block 1,500 kg, Copper Beam 8 m, Lead Ball, Oak Beam 8 m, Rubber Ball, Oak Crate ×2 | First cross a live deck. Then three bars block the exit, one per lock: weigh plate ≥ 1,500 kg, terminals 7.4 m apart, glass core ≥ 4,000 kg·m/s | Cross on the Rubber Mat. Then place the Tungsten Block on the plate, the Copper Beam aimed at the far terminal, and the Lead Ball at the top of the launch ramp | Oak doesn't conduct; the crates and Rubber Ball are too light |
 
-Every solution was verified in Play mode with automated tests. They place matter through the Matter Gun's own placement code, move the player with its CharacterController, and check the doors, plates, circuits, seals and scale. The routes covered include walking up the Timber Ramp onto the ledge, bouncing 6.2 m off the Bounce Pad onto it, and standing on a floating raft. The key failures were tested the same way: the crates too light for the bucket, the Oak Beam leaving the circuit open, the Steel Ball hitting the seal too softly, the Copper Sheet zapping you, 600 kg leaving the scale tilted, ice and the Rubber Ball sliding into the acid, foam too light for the plate, and cubes staying put in the gutter. So were refunds on recycle, room reset and acid.
+Every solution was verified in Play mode with automated tests. They place matter through the Matter Gun's own placement code, move the player with its CharacterController, and check the doors, plates, circuits, seals and scale. The routes covered include walking up the Timber Ramp onto the ledge, bouncing 6.2 m off the Bounce Pad onto it, and standing on a floating raft. The key failures were tested the same way: the crates too light for the bucket, the Oak Beam leaving the circuit open, the Steel Ball hitting the seal too softly, the Copper Sheet zapping you, 600 kg leaving the scale tilted, ice and the Rubber Ball sliding into the acid, foam too light for the plate, and cubes staying put in the gutter. So were refunds on recycle and acid, and the level restart.
 
 ### Smoke test: Chamber 1
 
@@ -40,7 +41,7 @@ Every solution was verified in Play mode with automated tests. They place matter
 4. Expected result: a 0.37 m grey metal cube materializes in the bucket. The `LOAD 1,000 kg` readout turns green and the bucket sinks 1.2 m. The portcullis rises 3.6 m, the light above the arch turns from red to green, and the message reads "Counterweight engaged · portcullis rising".
 5. Walk through the arch into the lit vestibule. You are moved to Chamber 02 with its own inventory.
 
-If the cube misses the bucket, aim at it and **right click** to recycle it, then place it again.
+If the cube misses the bucket, aim at it and **right click** to recycle it, then place it again, or press **R** to restart the level.
 
 ## Rebuilding
 
@@ -67,7 +68,8 @@ The live site is the Unity WebGL build in `web/`, deployed on Vercel as a static
 | `PhysicalObjectConfig.cs` | One object's physics profile: shape, dimensions, mass, bounciness, frictions, colour, roughness, metalness |
 | `ChamberLoadout.cs` | A chamber's inventory: items, each with a name, a count and a config |
 | `Inventory.cs` | The current chamber's hotbar: counts, selection, take and refund |
-| `MatterGun.cs` | Item selection, centre-screen aim (including water surfaces), placement preview, placement, recycle and room reset, and building each Rigidbody with a runtime PhysicsMaterial (friction Multiply) and a URP Lit material |
+| `LevelFlow.cs` | Level restart (R or the HUD button): reloads the scene and returns to the current chamber's entrance with a full inventory |
+| `MatterGun.cs` | Item selection, centre-screen aim (including water surfaces), placement preview, placement squared to the room, recycle, and building each Rigidbody with a runtime PhysicsMaterial (friction Multiply) and a URP Lit material |
 | `SpawnedMatter.cs` | Materialize and dissolve effects, conductivity, impact sound and camera shake scaled by `relativeVelocity × mass`, and the refund when it's gone |
 | `ShapeIcon.cs` | Hotbar icons: a small CPU ray tracer draws each item's real shape, proportions and colour |
 | `MatterHUD.cs` | Crosshair, hotbar, telemetry, chamber name, flash messages |

@@ -32,9 +32,12 @@ public static class GameInput
     public static bool PlacePressed => ClickPressed || (Keys != null && Keys.fKey.wasPressedThisFrame);
     /// <summary>Recycle the matter under the crosshair: right click or X.</summary>
     public static bool RecyclePressed => (Pointer != null && Pointer.rightButton.wasPressedThisFrame) || (Keys != null && Keys.xKey.wasPressedThisFrame);
-    public static bool ResetPressed => Keys != null && Keys.rKey.wasPressedThisFrame;
+    /// <summary>Restart the current chamber.</summary>
+    public static bool RestartPressed => Keys != null && Keys.rKey.wasPressedThisFrame;
     /// <summary>Mouse wheel this frame; only the sign matters.</summary>
     public static float Scroll => Pointer != null ? Pointer.scroll.ReadValue().y : 0f;
+    /// <summary>Mouse position in screen pixels, origin bottom left.</summary>
+    public static Vector2 PointerPosition => Pointer != null ? Pointer.position.ReadValue() : Vector2.zero;
 
     /// <summary>Index 0-8 of a number key 1-9 pressed this frame, or -1.</summary>
     public static int SlotPressed
@@ -58,8 +61,9 @@ public static class GameInput
     public static bool ClickPressed => Input.GetMouseButtonDown(0);
     public static bool PlacePressed => ClickPressed || Input.GetKeyDown(KeyCode.F);
     public static bool RecyclePressed => Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.X);
-    public static bool ResetPressed => Input.GetKeyDown(KeyCode.R);
+    public static bool RestartPressed => Input.GetKeyDown(KeyCode.R);
     public static float Scroll => Input.mouseScrollDelta.y;
+    public static Vector2 PointerPosition => Input.mousePosition;
 
     public static int SlotPressed
     {

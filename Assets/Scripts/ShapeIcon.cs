@@ -16,14 +16,16 @@ public static class ShapeIcon
     static readonly Vector3 Up = new Vector3(1f, 2f, 1f).normalized;
     static readonly Vector3 Light = new Vector3(-0.5f, 1f, -0.3f).normalized;
 
-    static readonly Dictionary<PhysicalObjectConfig, Texture2D> Cache = new Dictionary<PhysicalObjectConfig, Texture2D>();
+    // keyed by look, not by instance: identical items share an icon, and icons survive a level restart
+    static readonly Dictionary<string, Texture2D> Cache = new Dictionary<string, Texture2D>();
 
     public static Texture2D For(PhysicalObjectConfig config)
     {
         if (config == null) return null;
-        if (Cache.TryGetValue(config, out Texture2D texture) && texture) return texture;
+        string key = $"{config.shape}|{config.Size}|{config.hexColor}|{config.metalness}";
+        if (Cache.TryGetValue(key, out Texture2D texture) && texture) return texture;
         texture = Render(config);
-        Cache[config] = texture;
+        Cache[key] = texture;
         return texture;
     }
 
